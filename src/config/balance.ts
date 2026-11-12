@@ -1,0 +1,16 @@
+export const BALANCE = {
+  castleHP: 120, initialGold: 12, yearlyGold: 5, handSize: 5, maxLevel: 3,
+  initialSize: 3, maxSize: 5, finalYear: 20, bossEvery: 5, perkEvery: 3,
+  waveBase: 3, waveGrowth: 0.65, enemyHP: 18, enemyHPGrowth: 2,
+  enemyDamage: 4, enemyDamageGrowth: 0.35, bossMultiplier: 1.65,
+  rewardGold: 9, victoryGold: 3, heal: 22, spellDamage: 28, startingDraws: 2,
+  step: 1 / 30, battleLimit: 80, unitSpeed: 24, attackInterval: 0.9,
+  battlefieldWidth: 800, battlefieldHeight: 240, castleX: 45,
+  spawnX: 140, enemyX: 720, meleeRange: 24, rangedRange: 135,
+  towerRange: 550, towerInterval: 1.2, formationGap: 18,
+  perkDamage: 0.18, perkIncome: 2, perkHP: 25, adjacency: 0.2,
+  baseSpawn: 2, baseHP: 26, baseDamage: 6, towerDamage: 10,
+  buildingCost: 3, towerCost: 4, enchantCost: 2, spellCost: 2, expandCost: 4,
+  incomeAmount: 3, passiveDamage: 0.15, passiveHP: 0.25, passiveGold: 2,
+  expandingHeal: 8, spawnPerLevel: 1, critChance: 0.12, critMultiplier: 1.6,
+} as const;
