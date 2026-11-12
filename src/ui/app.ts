@@ -1,75 +1,136 @@
 import { BALANCE as B } from '../config/balance';
-import { cards, factions } from '../content';
-import { perks } from '../content/perks';
-import { waveFor } from '../content/waves';
+import { cards } from '../content';
+import { Sound } from '../audio/sound';
 import { Game } from '../core/game';
 import { seedFrom } from '../core/rng';
-import type { FactionId } from '../core/types';
-import { drawKingdom, GRID, pointToTile } from '../render/kingdom';
-import { drawBattle } from '../render/battle';
+import type { FactionId, Point } from '../core/types';
+import { Scene } from '../render/scene';
 import { load, recordRun, save } from '../save';
 import { cardHTML, effectText } from './cards';
+import { demo } from './demo';
+import { endHTML, factionHTML, helpHTML, hudHTML, menuHTML, rewardHTML } from './screens';
 export class App {
-  private data=load(); private game?:Game; private selected=-1; private speed=1; private paused=false;
-  private hover?:{x:number;y:number}; private last=0; private accumulator=0; private screen:'menu'|'factions'|'game'='menu';
-  private sound=false; private audio?:AudioContext;
-  constructor(private root:HTMLElement){
-    this.menu();requestAnimationFrame(t=>this.frame(t));
-    window.addEventListener('keydown',e=>{if((e.target as HTMLElement).tagName==='INPUT')return;if(e.code==='Space'&&this.screen==='game'){e.preventDefault();this.togglePause();}if(e.key==='Escape'){this.selected=-1;this.render();}const i=Number(e.key)-1;if(i>=0&&i<5&&this.screen==='game')this.selectCard(i);});
-    window.addEventListener('blur',()=>{if(this.game?.run.phase==='battle'){this.paused=true;this.render();}});
+  private data=load();private game?:Game;private preview=demo();private scene:Scene;
+  private overlay:HTMLElement;private controls:HTMLElement;private tooltip:HTMLElement;private toast:HTMLElement;
+  private selected=-1;private speed=1;private paused=false;private hover?:Point;private cursor:Point={x:0,y:0};
+  private screen:'menu'|'factions'|'game'|'help'='menu';private sound=new Sound();
+  private last=0;private time=0;private accumulator=0;private victoryAt=-100;private lastSerial=0;
+  private reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  constructor(root:HTMLElement){
+    root.innerHTML='<main class="game"><canvas id="world" aria-label="Kingdom battlefield" tabindex="0"></canvas><div id="controls"></div><div id="tooltip" role="status"></div><div id="overlay"></div><div id="toast" role="status"></div></main>';
+    this.scene=new Scene(root.querySelector<HTMLCanvasElement>('#world')!);
+    this.overlay=root.querySelector('#overlay')!;this.controls=root.querySelector('#controls')!;this.tooltip=root.querySelector('#tooltip')!;this.toast=root.querySelector('#toast')!;
+    this.scene.resize(innerWidth,innerHeight);window.addEventListener('resize',()=>this.scene.resize(innerWidth,innerHeight));
+    this.input();this.menu();requestAnimationFrame(t=>this.frame(t));
+    window.addEventListener('blur',()=>{if(this.screen==='game'&&this.game?.run.phase==='battle'){this.paused=true;this.refresh();}});
   }
-  private persist():void {if(!save(this.data.run,this.data.meta))this.notice('Storage unavailable: this session cannot be saved.');}
-  private brand():string{return '<div class="brand"><span class="brand-mark">♜</span><div>CROWN <em>of the</em> WILD<small>A KINGDOM, ONE YEAR AT A TIME</small></div></div>';}
+  private persist():void {if(!save(this.data.run,this.data.meta))this.notice('Browser storage unavailable. Progress cannot be saved.');}
   private menu():void {
-    this.screen='menu';this.root.innerHTML=`<div class="landing"><header>${this.brand()}<span class="edition">FIELD NOTES / v0.1.0</span></header><main class="hero"><div><div class="eyebrow">A SMALL KINGDOM. AN UNWRITTEN STORY.</div><h1>From a single crown,<br>let a kingdom <em>grow.</em></h1><p>Lay your foundations. Forge unexpected alliances.<br>Hold the line for twenty years.</p><div class="hero-buttons"><button class="primary" id="new">Begin a chronicle <span>↗</span></button>${this.data.run&&!['victory','defeat'].includes(this.data.run.phase)?'<button id="continue">Continue chronicle →</button>':''}</div><div class="hero-meta"><span>◈ 3 ORIGINAL FACTIONS</span><span>⊞ BUILD YOUR KINGDOM</span><span>⚔ AUTOMATIC BATTLES</span></div><div class="record">${this.data.meta.runs} chronicles · ${this.data.meta.wins} victories · best year ${this.data.meta.bestYear}</div></div><div class="hero-world"><div class="world-label">THE FIRST SETTLEMENT <span>01 / 20</span></div><canvas id="intro" width="600" height="420"></canvas><div class="world-caption">Every great kingdom begins with a single tile.</div></div></main><footer>ORIGINAL WORLDS. UNEXPECTED ALLIANCES.<span>Built to be played again.</span></footer></div>`;
-    const demo=Game.create('ember',1).run;demo.tiles[0].cardId='ember-guard';demo.tiles[0].level=1;demo.tiles[5].cardId='ember-forge';demo.tiles[5].level=1;demo.tiles[7].cardId='ember-spire';demo.tiles[7].level=2;
-    drawKingdom(this.root.querySelector<HTMLCanvasElement>('#intro')!,demo);
-    this.bind('#new',()=>this.factionSelect());this.bind('#continue',()=>{if(this.game?.run.phase==='battle'){this.screen='game';this.paused=false;this.render();}else if(this.data.run)this.attach(new Game(structuredClone(this.data.run)));});
+    this.screen='menu';this.paused=true;this.controls.innerHTML='';this.tooltip.textContent='';
+    this.overlay.innerHTML=menuHTML(!!this.data.run&&!['victory','defeat'].includes(this.data.run.phase));
+    this.bind('#new',()=>this.factions());this.bind('#settings',()=>this.help());
+    this.bind('#continue',()=>{if(this.game){this.screen='game';this.paused=false;this.refresh();}else if(this.data.run)this.attach(new Game(structuredClone(this.data.run)));});
   }
-  private factionSelect():void {
-    this.screen='factions';this.root.innerHTML=`<div class="selection-page"><header>${this.brand()}<button id="back">← Back</button></header><div class="selection-title"><div class="eyebrow">CHOOSE WHO WILL WRITE YOUR HISTORY</div><h1>Three banners.<br><em>Countless possibilities.</em></h1><p>Begin with Embercourt. Complete one chronicle to unlock Verdant Pact; two, or a victory, for Tideglass.</p><label>Run seed <input id="seed" maxlength="60" value="wild-${Date.now().toString(36)}" aria-label="Run seed"></label></div><div class="faction-grid">${Object.values(factions).map(f=>{const unlocked=this.data.meta.unlockedFactions.includes(f.id);return `<button class="faction ${unlocked?'':'locked'}" data-faction="${f.id}" ${unlocked?'':'disabled'} style="--faction:${f.color}"><span class="faction-icon">${f.icon}</span><div class="eyebrow">${f.subtitle}</div><h2>${f.name}</h2><p>${f.passive}</p><small>${f.deck.map(id=>cards[id].name).join(' · ')}</small><strong>${unlocked?'Raise this banner ↗':'Locked — finish more chronicles'}</strong></button>`;}).join('')}</div></div>`;
-    this.bind('#back',()=>this.menu());this.root.querySelectorAll<HTMLButtonElement>('[data-faction]').forEach(el=>el.onclick=()=>{const seed=this.root.querySelector<HTMLInputElement>('#seed')!.value;this.attach(Game.create(el.dataset.faction as FactionId,seedFrom(seed),this.data.meta.unlockedCards));});
+  private factions():void {
+    this.screen='factions';this.controls.innerHTML='';this.overlay.innerHTML=factionHTML(this.data.meta);
+    this.bind('#back',()=>this.menu());this.overlay.querySelectorAll<HTMLButtonElement>('[data-faction]').forEach(el=>el.onclick=()=>{
+      const seed=this.overlay.querySelector<HTMLInputElement>('#seed')!.value;
+      this.attach(Game.create(el.dataset.faction as FactionId,seedFrom(seed),this.data.meta.unlockedCards));
+    });
   }
   private attach(game:Game):void {
-    this.game=game;this.screen='game';this.selected=-1;this.paused=false;this.accumulator=0;
-    game.events.on('changed',r=>{this.data.run=r;this.persist();this.render();});
-    game.events.on('finished',r=>{recordRun(this.data.meta,r);this.tone(220);});
-    this.data.run=game.run;this.persist();this.render();
+    this.game=game;this.screen='game';this.paused=false;this.selected=-1;this.accumulator=0;this.victoryAt=-100;this.lastSerial=0;
+    game.events.on('changed',r=>{this.data.run=r;this.persist();if(this.screen==='game')this.refresh();});
+    game.events.on('placed',p=>{this.scene.pop(p.tile,this.time);this.sound.play('place');});
+    game.events.on('battle',b=>{
+      if(b.serial<this.lastSerial)this.lastSerial=0;
+      if(b.done&&b.won){this.victoryAt=this.time;this.sound.play('victory');}
+      for(const h of b.hits.items)if(h.active&&h.serial>this.lastSerial){if(h.kind==='tower')this.sound.play('tower');else if(h.kind==='hit')this.sound.play('hit');}
+      this.lastSerial=b.serial;
+      if(b.projectiles.items.some(p=>p.active&&p.kind==='arrow'))this.sound.play('arrow');
+    });
+    game.events.on('finished',r=>{recordRun(this.data.meta,r);this.persist();});
+    this.data.run=game.run;this.persist();this.refresh();
   }
-  private render():void {
+  private refresh():void {
     if(this.screen!=='game'||!this.game)return;
-    const r=this.game.run,f=factions[r.faction],enemy=factions[r.enemy],wave=waveFor(r.year),battle=r.phase==='battle';
-    this.root.innerHTML=`<div class="game-shell"><header>${this.brand()}<div class="header-actions"><button id="sound" aria-label="Toggle sound">${this.sound?'♪ Sound on':'♪ Sound off'}</button><button id="menu">☰ Menu</button></div></header><div class="game-top"><div><div class="eyebrow">THE ${f.name.toUpperCase()} CHRONICLE</div><h1>Year ${String(r.year).padStart(2,'0')} <span>/ 20</span></h1></div><div class="resources"><div><small>CASTLE INTEGRITY</small><strong>♥ ${Math.ceil(r.hp)} <span>/ ${r.maxHP}</span></strong><div class="hp-track"><i style="width:${r.hp/r.maxHP*100}%"></i></div></div><div><small>YOUR TREASURY</small><strong class="gold">◉ ${r.gold}</strong><span>+${B.yearlyGold+(r.faction==='tide'?B.passiveGold:0)} base / year</span></div><div class="phase-chip">${battle?'⚔ BATTLE IN PROGRESS':'◷ '+r.phase.toUpperCase()}</div></div></div><main class="board-layout"><aside class="sidebar"><div class="eyebrow">YOUR BANNER</div><div class="banner" style="color:${f.color}">${f.icon}</div><h2>${f.name}</h2><p>${f.passive}</p><hr><div class="eyebrow">ON THE HORIZON</div><h3>${wave.boss?'♛ BOSS · ':''}${enemy.name}</h3><p>${wave.count} invaders · ${Math.round(wave.hp)} HP<br>${wave.damage.toFixed(1)} damage each</p><div class="year-dots">${Array.from({length:20},(_,i)=>`<i class="${i<r.year?'lit':''} ${i%5===4?'boss':''}" title="Year ${i+1}"></i>`).join('')}</div><hr><div class="eyebrow">ROYAL BLESSINGS</div><p>${r.perks.length?r.perks.map(id=>perks.find(p=>p.id===id)!.name).join(' · '):'Your story is still taking root.'}</p><p class="tiny">${r.kills} invaders defeated<br>Seed ${r.seed}</p></aside><section class="kingdom-panel"><div class="panel-heading"><span>01 <b>YOUR KINGDOM</b></span><span>${r.size} × ${r.size} tiles <i>⊞</i></span></div><canvas id="kingdom" width="${GRID.width}" height="${GRID.height}" tabindex="0" aria-label="Kingdom grid. Select a card, then click an empty tile; castle is at center."></canvas><div id="tile-info" class="tile-info">${this.selected>=0?'Choose a tile. Enchantments highlight adjacent neighbors.':'Select a card, then a tile · Stack identical cards to upgrade'}</div><div class="battle-strip"><div class="panel-heading"><span>02 <b>THE FRONTLINE</b></span><div class="speed-controls">${[1,2,4].map(n=>`<button data-speed="${n}" class="${this.speed===n?'active':''}">${n}×</button>`).join('')}<button id="pause">${this.paused?'▶':'Ⅱ'}</button></div></div><canvas id="battle" width="800" height="240" aria-label="Automatic battle"></canvas></div></section><aside class="journal"><div class="eyebrow">THE ROYAL JOURNAL</div><h2>Small choices.<br><em>Lasting echoes.</em></h2><div class="journal-line"></div><span class="journal-number">${String(r.year).padStart(2,'0')}</span><h3>${wave.boss?'A great storm gathers.':'Prepare for the coming year.'}</h3><p>Place buildings to muster troops. Enchant their neighbors. Keep your castle standing.</p><div class="tip"><span>✧ A WORD OF ADVICE</span><p>Buildings spawn a fresh army every battle. Your permanent tiles are your greatest strength.</p></div><p class="tiny">${r.waveDamage?`Spell prepared: ${r.waveDamage} damage to every enemy.`:'Spells resolve immediately. Unplayed cards are discarded next year.'}</p></aside></main><section class="hand-section"><div class="hand-heading"><div><div class="eyebrow">MAKE YOUR MOVE</div><h2>Your hand <span>${r.hand.length} cards</span></h2></div><p>Click or drag to place · 1–5 select · Space pauses</p><button class="primary" id="begin" ${r.phase!=='planning'?'disabled':''}>End year & defend <span>⚔</span></button></div><div class="hand">${r.hand.map((id,i)=>cardHTML(id,i,i===this.selected,r.gold)).join('') || '<p class="empty-hand">Your plans are laid. Defend your kingdom.</p>'}</div></section><div id="toast" role="status"></div>${this.modal()}</div>`;
-    this.bind('#sound',()=>{this.sound=!this.sound;this.render();});this.bind('#menu',()=>{this.paused=true;this.menu();});this.bind('#begin',()=>{this.selected=-1;this.game!.startBattle();});this.bind('#pause',()=>this.togglePause());
-    this.root.querySelectorAll<HTMLButtonElement>('[data-speed]').forEach(el=>el.onclick=()=>{this.speed=Number(el.dataset.speed);this.render();});
-    this.root.querySelectorAll<HTMLButtonElement>('[data-card]').forEach(el=>{el.onclick=()=>this.selectCard(Number(el.dataset.card));el.ondragstart=e=>{this.selected=Number(el.dataset.card);e.dataTransfer?.setData('text/plain',el.dataset.card!);};});
-    const canvas=this.root.querySelector<HTMLCanvasElement>('#kingdom')!;
-    canvas.onpointermove=e=>{this.hover=pointToTile(canvas,e.clientX,e.clientY);this.draw();this.tileInfo();};canvas.onpointerleave=()=>{this.hover=undefined;this.draw();};
-    canvas.onclick=e=>this.place(pointToTile(canvas,e.clientX,e.clientY));canvas.ondragover=e=>{e.preventDefault();this.hover=pointToTile(canvas,e.clientX,e.clientY);this.draw();};canvas.ondrop=e=>{e.preventDefault();this.place(pointToTile(canvas,e.clientX,e.clientY));};
-    this.root.querySelectorAll<HTMLButtonElement>('[data-reward]').forEach(el=>el.onclick=()=>this.game!.chooseReward(Number(el.dataset.reward)));
-    this.root.querySelectorAll<HTMLButtonElement>('[data-perk]').forEach(el=>el.onclick=()=>this.game!.choosePerk(el.dataset.perk!));
-    this.bind('#again',()=>this.factionSelect());this.bind('#cast',()=>this.place({x:0,y:0}));this.bind('#cancel',()=>{this.selected=-1;this.render();});this.draw();
+    const r=this.game.run;this.overlay.innerHTML='';
+    this.controls.innerHTML=hudHTML(r,this.speed,this.paused);
+    if(r.phase==='planning')this.controls.insertAdjacentHTML('beforeend',`<div class="hand-bar"><div class="hand-meta">PLAY ${r.playsThisYear} / 3<button id="begin">DEFEND NOW</button></div><div class="hand">${r.hand.map((id,i)=>cardHTML(id,i,i===this.selected,r.gold)).join('')}</div></div>`);
+    this.controls.querySelectorAll<HTMLButtonElement>('[data-card]').forEach(el=>{el.onclick=()=>this.select(Number(el.dataset.card));el.ondragstart=e=>{this.selected=Number(el.dataset.card);e.dataTransfer?.setData('text/plain',el.dataset.card!);};el.onpointerenter=()=>this.showCard(Number(el.dataset.card));el.onpointerleave=()=>this.updateTooltip();});
+    this.controls.querySelectorAll<HTMLButtonElement>('[data-speed]').forEach(el=>el.onclick=()=>{this.speed=Number(el.dataset.speed);this.refresh();});
+    this.bind('#begin',()=>{this.selected=-1;this.tooltip.textContent='';this.game!.startBattle();});
+    this.bind('#pause',()=>this.togglePause());this.bind('#menu',()=>this.help());
+    const waiting=this.time-this.victoryAt<1.2;
+    if(!waiting){
+      if(r.phase==='reward'||r.phase==='perk')this.overlay.innerHTML=rewardHTML(r);
+      if(r.phase==='victory'||r.phase==='defeat')this.overlay.innerHTML=endHTML(r,this.data.meta);
+    }
+    this.overlay.querySelectorAll<HTMLButtonElement>('[data-reward]').forEach(el=>el.onclick=()=>this.game!.chooseReward(Number(el.dataset.reward)));
+    this.overlay.querySelectorAll<HTMLButtonElement>('[data-perk]').forEach(el=>el.onclick=()=>this.game!.choosePerk(el.dataset.perk!));
+    this.bind('#again',()=>this.factions());this.bind('#exit',()=>this.menu());
+    if(this.paused&&r.phase==='battle')this.controls.insertAdjacentHTML('beforeend','<div class="pause-label">PAUSED</div>');
+    this.updateTooltip();
   }
-  private modal():string {
-    const r=this.game!.run;let body='';
-    if(r.phase==='reward')body=`<div class="eyebrow">THE KINGDOM ENDURES</div><h2>A spoils-worthy victory.</h2><p>Choose one reward. Captured cards join your deck.</p><div class="reward-grid">${r.rewards.map((w,i)=>`<button data-reward="${i}"><span>${w.kind==='card'?cards[w.id].icon:w.kind==='perk'?'✧':'◉'}</span><small>${w.kind.toUpperCase()}</small><h3>${w.kind==='card'?cards[w.id].name:w.kind==='perk'?perks.find(p=>p.id===w.id)!.name:`${B.rewardGold} gold`}</h3><p>${w.kind==='card'?effectText(cards[w.id]):w.kind==='perk'?perks.find(p=>p.id===w.id)!.description:'Invest in the years to come.'}</p></button>`).join('')}</div>`;
-    if(r.phase==='perk')body=`<div class="eyebrow">A MILESTONE IN YOUR HISTORY</div><h2>A royal blessing.</h2><p>Choose a permanent bonus for this chronicle.</p><div class="reward-grid">${perks.map(p=>`<button data-perk="${p.id}"><span>${p.icon}</span><h3>${p.name}</h3><p>${p.description}</p></button>`).join('')}</div>`;
-    if(r.phase==='victory'||r.phase==='defeat')body=`<div class="eyebrow">${r.phase==='victory'?'TWENTY YEARS. ONE UNBROKEN CROWN.':'EVEN GREAT KINGDOMS RETURN TO EARTH'}</div><h2>${r.phase==='victory'?'A kingdom for the ages.':'Every ending plants a seed.'}</h2><p>Year ${r.year} · ${r.kills} enemies defeated · ${r.cardsPlayed} cards played<br>${this.data.meta.unlockedFactions.length} factions and ${this.data.meta.unlockedCards.length} captured cards unlocked.</p><button class="primary" id="again">Write another chronicle ↗</button>`;
-    const c=cards[r.hand[this.selected]];
-    if(r.phase==='planning'&&c&&(c.type==='spell'||c.type==='expand'))body=`<div class="eyebrow">ROYAL DECISION</div><h2>${c.name}</h2><p>${effectText(c)}</p><button class="primary" id="cast">Cast for ${c.cost} gold</button><button id="cancel">Cancel</button>`;
-    return body?`<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-label="Royal decision">${body}</section></div>`:'';
+  private help():void {
+    this.screen='help';this.paused=true;this.controls.innerHTML='';this.tooltip.textContent='';
+    this.overlay.innerHTML=helpHTML(this.sound.enabled,this.reduced,!!this.game);
+    this.bind('#sound',()=>{this.sound.enabled=!this.sound.enabled;this.sound.unlock();this.help();});this.bind('#motion',()=>{this.reduced=!this.reduced;this.help();});
+    this.bind('#resume',()=>{if(this.game){this.screen='game';this.paused=false;this.refresh();}else this.menu();});this.bind('#exit',()=>this.menu());
   }
-  private selectCard(i:number):void {if(this.game?.run.phase!=='planning'||!this.game.run.hand[i])return;this.selected=this.selected===i?-1:i;this.render();}
-  private place(point:{x:number;y:number}):void {if(!this.game||this.selected<0)return;const error=this.game.play(this.selected,point.x,point.y);if(error)this.notice(error);else{this.selected=-1;this.tone(440);this.render();}}
-  private tileInfo():void {const r=this.game?.run,t=r?.tiles.find(t=>t.x===this.hover?.x&&t.y===this.hover?.y),el=this.root.querySelector('#tile-info');if(el&&t?.cardId)el.textContent=`${cards[t.cardId].name} · Lv ${t.level} · ${effectText(cards[t.cardId],t.level)}`;}
-  private togglePause():void {if(this.game?.run.phase==='battle'){this.paused=!this.paused;this.render();}}
-  private draw():void {if(this.screen!=='game'||!this.game)return;const k=this.root.querySelector<HTMLCanvasElement>('#kingdom'),b=this.root.querySelector<HTMLCanvasElement>('#battle');if(k)drawKingdom(k,this.game.run,this.hover,this.game.run.hand[this.selected]);if(b)drawBattle(b,this.game.battle);}
-  private frame(time:number):void {
-    const dt=Math.min((time-this.last)/1000,0.1);this.last=time;
-    if(this.screen==='game'&&this.game?.run.phase==='battle'&&!this.paused){this.accumulator+=dt*this.speed;while(this.accumulator>=B.step&&this.game.run.phase==='battle'){this.game.tick(B.step);this.accumulator-=B.step;}this.draw();}
+  private input():void {
+    const canvas=this.scene.canvas;
+    canvas.onpointermove=e=>{this.hover=this.scene.point(e.clientX,e.clientY);this.updateTooltip();};canvas.onpointerleave=()=>{this.hover=undefined;this.updateTooltip();};
+    canvas.onclick=e=>{this.sound.unlock();this.place(this.scene.point(e.clientX,e.clientY));};
+    canvas.ondragover=e=>{e.preventDefault();this.hover=this.scene.point(e.clientX,e.clientY);};canvas.ondrop=e=>{e.preventDefault();this.place(this.scene.point(e.clientX,e.clientY));};
+    window.addEventListener('keydown',e=>{
+      if((e.target as HTMLElement).tagName==='INPUT')return;
+      if(e.key==='Escape'){if(this.screen==='game'&&this.selected>=0){this.selected=-1;this.refresh();}else if(this.screen==='help'){if(this.game){this.screen='game';this.paused=false;this.refresh();}else this.menu();}else this.help();return;}
+      if(this.screen!=='game')return;
+      if(e.code==='Space'){e.preventDefault();this.togglePause();}
+      if(/^[1-5]$/.test(e.key))this.select(Number(e.key)-1);
+      if(e.key.startsWith('Arrow')){e.preventDefault();this.cursor.x=Math.max(-2,Math.min(2,this.cursor.x+(e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:0)));this.cursor.y=Math.max(-2,Math.min(2,this.cursor.y+(e.key==='ArrowDown'?1:e.key==='ArrowUp'?-1:0)));this.hover={...this.cursor};this.updateTooltip();}
+      if(e.key==='Enter'&&e.target===canvas){e.preventDefault();this.place(this.hover??this.cursor);}
+    });
+  }
+  private select(i:number):void {
+    if(!this.game||this.game.run.phase!=='planning'||!this.game.run.hand[i])return;
+    this.sound.unlock();this.selected=this.selected===i?-1:i;this.refresh();
+    const c=cards[this.game.run.hand[this.selected]];
+    if(c?.type==='spell'){
+      this.tooltip.innerHTML=`<b>${c.name}</b><span>${effectText(c)}</span><button id="cast">CAST (${c.cost} GOLD)</button><button id="cancel">CANCEL</button>`;
+      this.bind('#cast',()=>this.place(this.game!.run.castle!));this.bind('#cancel',()=>{this.selected=-1;this.refresh();});
+    }
+  }
+  private place(point:Point):void {
+    if(this.screen!=='game'||!this.game||this.paused)return;
+    const error=this.game.run.phase==='castle'?this.game.placeCastle(point.x,point.y):this.selected>=0?this.game.play(this.selected,point.x,point.y):'Select a card first.';
+    if(error)this.notice(error);else{this.selected=-1;this.tooltip.textContent='';this.refresh();}
+  }
+  private showCard(index:number):void {const selected=this.game?.run.hand[this.selected];if(selected&&cards[selected].type==='spell')return;const id=this.game?.run.hand[index];if(id)this.tooltip.textContent=`${cards[id].name}: ${effectText(cards[id])}. Stack for stronger squads. Cost ${cards[id].cost}.`;}
+  private updateTooltip():void {
+    const r=this.game?.run;if(this.screen!=='game'||!r)return;
+    const t=r.tiles.find(t=>t.x===this.hover?.x&&t.y===this.hover?.y),id=r.hand[this.selected];
+    if(id&&cards[id].type==='spell')return;
+    this.tooltip.textContent=t?.cardId?`${cards[t.cardId].name} / Lv ${t.level} / ${effectText(cards[t.cardId],t.level)}`:id?`${cards[id].name}: ${effectText(cards[id])}${cards[id].type==='expand'?' - choose a highlighted new plot.':''}`:'';
+  }
+  private togglePause():void {if(this.game?.run.phase==='battle'){this.paused=!this.paused;this.refresh();}}
+  private frame(timestamp:number):void {
+    const dt=Math.min((timestamp-this.last)/1000,0.1);this.last=timestamp;this.time+=dt;
+    const playing=this.screen==='game'&&this.game;
+    if(playing&&this.game!.run.phase==='battle'&&!this.paused){
+      this.accumulator+=dt*this.speed;
+      while(this.accumulator>=B.step&&this.game!.run.phase==='battle'){this.game!.tick(B.step);this.accumulator-=B.step;}
+      const b=this.game!.battle;if(b){const fill=this.controls.querySelector<HTMLElement>('#hp-fill'),value=this.controls.querySelector('#hp-value');if(fill)fill.style.width=`${b.castleHP/this.game!.run.maxHP*100}%`;if(value)value.textContent=`${Math.ceil(b.castleHP)} / ${this.game!.run.maxHP}`;}
+    }
+    if(playing&&this.victoryAt>0&&this.time-this.victoryAt>=1.2){this.victoryAt=-100;this.refresh();}
+    if(!this.game||this.screen==='menu'||this.screen==='factions'){
+      if(this.preview.run.phase!=='battle')this.preview=demo();else this.preview.tick(B.step);
+    }
+    const game=playing||this.screen==='help'&&this.game?this.game!:this.preview;
+    this.scene.draw(game.run,game.battle,{time:this.time,reducedMotion:this.reduced,hover:playing?this.hover:undefined,selected:playing?game.run.hand[this.selected]:undefined});
     requestAnimationFrame(t=>this.frame(t));
   }
-  private tone(frequency:number):void {if(!this.sound)return;try{this.audio??=new AudioContext();void this.audio.resume();const o=this.audio.createOscillator(),g=this.audio.createGain();o.frequency.value=frequency;o.type='triangle';g.gain.setValueAtTime(0.04,this.audio.currentTime);g.gain.exponentialRampToValueAtTime(0.001,this.audio.currentTime+0.15);o.connect(g);g.connect(this.audio.destination);o.start();o.stop(this.audio.currentTime+0.16);}catch{/* Audio is optional. */}}
-  private bind(selector:string,fn:()=>void):void {const el=this.root.querySelector<HTMLButtonElement>(selector);if(el)el.onclick=fn;}
-  private notice(message:string):void {const el=this.root.querySelector('#toast');if(el){el.textContent=message;setTimeout(()=>{el.textContent='';},3500);}}
+  private bind(selector:string,fn:()=>void):void {const el=document.querySelector<HTMLButtonElement>(selector);if(el)el.onclick=fn;}
+  private notice(text:string):void {this.toast.textContent=text;setTimeout(()=>{this.toast.textContent='';},2800);}
 }

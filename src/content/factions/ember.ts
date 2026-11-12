@@ -10,6 +10,6 @@ export const emberCards = makeDeck('ember', [
   ['heal','Rekindle','spell','Restore castle health.',heal],
   ['blast','Firefall','spell','Damage every enemy in the next battle.',blast],
   ['edict','Ember Decree','spell','Gain gold immediately.',gold],
-  ['expand','Frontier','expand','Expand to 5×5 and mend the castle.',expand],
+  ['expand','Frontier','expand','Add one neighboring plot and mend the castle.',expand],
 ]);
-export const ember: Faction = { id: 'ember', name: 'Embercourt', subtitle: 'The restless flame', icon: '♜', color: '#f3a46b', passive: 'All troops and towers deal +15% damage.', deck: emberCards.map(c => c.id) };
+export const ember: Faction = { id: 'ember', name: 'Embercourt', subtitle: 'The restless flame', icon: 'ember', color: '#f3a46b', passive: 'All troops and towers deal +15% damage.', deck: emberCards.map(c => c.id) };

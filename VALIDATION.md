@@ -1,44 +1,54 @@
-# Executed validation — 2026-11-12
+# Executed validation — v0.2.0 (2026-11-13, Asia/Tashkent)
 
-## Current machine
+## Build and headless checks
 
-- Node.js 24.22.1, npm 11.9.0, Chromium from `/usr/bin/chromium`.
-- `npm --cache /tmp/kingdom-npm ci --no-audit --no-fund`: passed; verified repeatable installation using the lockfile.
-- `npm run build`: passed strict TypeScript checking and Vite production compilation. Output: `dist/`.
-- `npm test`: **17 tests passed**, 2 files; no skipped/disabled tests.
-- `git diff --check`: passed. No `any` or `Math.random` in source/tests.
-- `npm run dev -- --port 5173`: started successfully; functional browser requests passed.
+Environment: Linux cloud workspace, Node.js 24.22.1, npm 11.9.0, system Chromium 156.
 
-## Real Chromium checks
+- `npm run build`: passed strict TypeScript checking and production compilation.
+- `npm test -- --reporter=verbose`: **32 tests passed** in 3 files, with no skipped/disabled tests.
+- Warmed **complete 300-unit battle**, including battle creation: **13.48 ms** on the final recorded test run (100 ms assertion). The battle advanced 14.15 simulated seconds. An earlier run measured 19.85 ms.
+- 440-unit test verifies bounded projectile/hit storage and pool identity across steps.
+- Full 20-year simulation with a developed 5x5 kingdom reaches victory.
+- Spatial nearest queries match brute-force results; identical seeds reproduce combat, projectiles and targeting exactly.
+- Effects, adjacency, 4/8/14 squads, duplicate upgrades, castle placement, three-play auto-start, single-plot expansion, card-only rewards, wave scaling, all four entry directions, progression and migrations are covered.
+- `git diff --check`: passed. No `any`, unseeded `Math.random`, emoji or Unicode art icons in source.
 
-Automated Playwright against the running development server at desktop 1440×1100 and mobile 390×844:
+## Browser performance
 
-- Main menu, seeded faction selection and original card display.
-- Click placement, native HTML drag/drop and actual touchscreen tap placement.
-- Adjacency card placement, healing confirmation, 5×5 expansion and level-3 upgrades.
-- One live opening battle through reward selection and Year 2.
-- 4× speed, pause/resume and menu-to-live-battle continuation.
-- Refresh and continue from the persisted planning state.
-- Responsive page has no horizontal overflow; hand scrolls in its own region.
-- Canvas aspect-ratio check confirms pointer coordinates match rendered tile positions.
-- Year-20 victory screen using a prepared save fixture, plus permanent unlock persistence.
-- Live undefended defeat with a 1-HP save fixture, plus Verdant Pact unlock.
-- **Zero uncaught browser exceptions** across both scenarios.
+Real headless Chromium, 1440x900 viewport, one 440-unit battle. The benchmark uses the actual headless simulation and `Scene` renderer at RAF frequency, including arrows, damage numbers and hit flashes. A durable stress fixture places all 440 units inside the viewport with delayed spawning disabled; HP is raised to keep all combatants alive throughout the measurement. Death particles are covered by combat tests and interactive scenarios. One fixed sim step is deliberately run on every rendered frame (a heavier sim cadence than the normal 30 Hz loop).
 
-The full twenty-year established-kingdom playthrough runs headlessly in Vitest. It was not played through manually in the browser. Balance and long-session usability still need human playtesting. Browser evidence uses temporary Playwright tooling, not a required game dependency.
+After 16 warm-up frames, 164 measured frames:
 
-Screenshots on this machine:
+| Measurement | Result |
+| --- | --- |
+| Simulation + scene draw, mean | 1.08 ms |
+| Simulation + scene draw, 95th percentile | 1.60 ms |
+| Simulation only, mean | 0.10 ms |
+| Mean RAF interval | 16.68 ms (~60 Hz) |
+| Minimum living units inside viewport | 440 |
 
-- `/workspace/scratch/kingdom-evidence/menu.png`
-- `/workspace/scratch/kingdom-evidence/kingdom.png`
-- `/workspace/scratch/kingdom-evidence/mobile.png`
-- `/workspace/scratch/kingdom-evidence/victory.png`
-- `/workspace/scratch/kingdom-evidence/defeat.png`
+These are CPU submission timings on this cloud machine, not a guarantee for every GPU/browser/device or a subjective game-feel assessment. The visible-unit assertion checks living units inside the battlefield bounds on every frame, not just allocated simulation objects. Evidence JSON: `/workspace/scratch/kingdom-v2/performance.json`.
 
-## Reusable cloud configuration
+## Interactive browser scenarios
 
-Saved `install_script` (frozen dependency install, build and tests) and `start_skill` (working directory, service startup and functional readiness checks). No new secrets, environment variables or network domains were necessary. Draft persistence is confirmed; publication and restoration in a fresh task have not been performed. Review/save the draft in environment settings and publish to make the prepared snapshot available to later tasks.
+Playwright against the running development server; desktop 1440x900 and mobile 390x844:
 
-## MVP limits
+- One visible scene canvas; centered menu over a live game scene; no website panels/journal.
+- Player-placed off-center castle and five-card hand; cards stay under 140px tall.
+- Placement, native HTML drag/drop, duplicate level-3 upgrades and automatic battle after the third play.
+- Allied troop movement, noncentral castle targeting and actual frontline combat on the kingdom field.
+- Speed and pause; menu-to-live-battle continuation.
+- Three distinct enemy-deck cards; next year, reload and checkpoint continuation.
+- Single-plot expansion, heal confirmation, keyboard plot cursor/Enter placement and actual touchscreen input.
+- Sound/reduced-motion controls and zero uncaught browser errors.
+- Actual old-v2 save migration preserves progression and converts mixed rewards.
+- Victory/defeat transitions and permanent unlocks using prepared run fixtures.
+- A late-year expanded-kingdom battle exercises hundreds of units on screen.
 
-Original geometric placeholder art and optional synthesized tones. Factions share card-effect archetypes and a common scaling enemy melee AI; enemy identity changes reward decks, while troop/passive differences distinguish playable factions. Bosses increase wave stats rather than introducing bespoke boss behavior. Combat has a deterministic siege timeout. Battle checkpoints replay from planning after refresh. Further design/balance work is listed in README.md.
+The first browser regression found a spell-confirmation button disappearing when the pointer left a hand card. Both pointer-leave and replacement-card hover handlers were fixed to preserve the selected spell tooltip. The full scenario then passed, including Cast, keyboard placement, v2 migration, victory/defeat and touch input.
+
+Screenshots in `/workspace/scratch/kingdom-v2/`: `menu.png`, `planning.png`, `battle.png`, `mobile.png`, `victory.png`, `large-battle.png`. Browser tooling and logs are local validation artifacts, not runtime game dependencies.
+
+## Limits
+
+Bespoke boss abilities and human balance/game-feel testing remain future work. Enemy factions have distinct palette/king/unit identity and stat modifiers; boss years currently scale count/stats. The procedural art and synthesized audio are original. No external assets, accounts or secrets are required. Save migration is covered in logic and browser checks; publication and restoration of a new cloud snapshot have not been performed.

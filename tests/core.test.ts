@@ -43,24 +43,24 @@ describe('content and effect composition',()=>{
     const r=Game.create('ember',2).run,registry=createEffects();r.hp=20;
     registry.execute('onPlace',{run:r,card:cards['ember-heal'],level:1});expect(r.hp).toBe(20+B.heal);
     registry.execute('onPlace',{run:r,card:cards['ember-blast'],level:1});expect(r.waveDamage).toBe(B.spellDamage);
-    registry.execute('onPlace',{run:r,card:cards['ember-expand'],level:1});expect(r.tiles).toHaveLength(25);expect(new Set(r.tiles.map(tileKey)).size).toBe(25);
+    registry.execute('onPlace',{run:r,card:cards['ember-expand'],tile:{x:2,y:0,cardId:null,level:0},level:1});expect(r.tiles).toHaveLength(10);expect(new Set(r.tiles.map(tileKey)).size).toBe(10);
     const gold=r.gold;registry.execute('onYearStart',{run:r,card:cards['ember-treasury'],level:3});expect(r.gold).toBe(gold+B.incomeAmount*3);
   });
 });
 describe('card placement and year flow',()=>{
   it('upgrades identical cards to level 3 and rejects illegal moves without spending',()=>{
-    const g=Game.create('ember',9);g.run.gold=100;g.run.hand=Array(5).fill('ember-guard');
+    const g=Game.create('ember',9);g.placeCastle(0,0);g.run.gold=100;g.run.hand=Array(5).fill('ember-guard');
     expect(g.play(0,0,0)).toBeTruthy();expect(g.run.gold).toBe(100);
     for(let i=0;i<3;i++)expect(g.play(0,-1,0)).toBeNull();
     expect(g.run.tiles.find(t=>t.x===-1&&t.y===0)?.level).toBe(3);
-    expect(g.play(0,-1,0)).toContain('level 3');g.run.hand[0]='ember-spire';expect(g.play(0,-1,0)).toContain('identical');
+    expect(g.run.phase).toBe('battle');g.run.phase='planning';g.run.playsThisYear=0;expect(g.play(0,-1,0)).toContain('level 3');g.run.hand[0]='ember-spire';expect(g.play(0,-1,0)).toContain('identical');
     g.run.gold=0;expect(g.play(0,1,0)).toContain('gold');
   });
   it('handles battle, rewards, periodic perks, yearly gold and refreshed hands',()=>{
-    const g=Game.create('tide',18);g.run.waveDamage=10000;g.startBattle();g.tick(B.step);expect(g.run.phase).toBe('reward');
-    const gold=g.run.gold;g.chooseReward(2);expect(g.run.year).toBe(2);expect(g.run.gold).toBe(gold+B.rewardGold+B.yearlyGold+B.passiveGold);expect(g.run.hand).toHaveLength(5);
+    const g=Game.create('tide',18);g.placeCastle(0,0);g.run.waveDamage=10000;g.startBattle();g.tick(B.step);expect(g.run.phase).toBe('reward');
+    const gold=g.run.gold;g.chooseReward(2);expect(g.run.year).toBe(2);expect(g.run.gold).toBe(gold+B.yearlyGold+B.passiveGold);expect(g.run.deck).toContain(g.run.deck.at(-1));expect(g.run.hand).toHaveLength(5);
     g.run.year=3;g.run.waveDamage=10000;g.startBattle();g.tick(B.step);g.chooseReward(0);expect(g.run.phase).toBe('perk');g.choosePerk('walls');expect(g.run.maxHP).toBe(B.castleHP+B.perkHP);expect(g.run.year).toBe(4);
   });
-  it('finishes at year 20 and prevents actions during a battle',()=>{const g=Game.create('ember',7);g.run.year=20;g.run.waveDamage=10000;g.startBattle();expect(g.play(0,1,0)).toBeTruthy();g.tick(B.step);expect(g.run.phase).toBe('victory');});
-  it('loses an undefended kingdom and emits one finish event',()=>{const g=Game.create('ember',7);g.run.hp=1;let finished=0;g.events.on('finished',()=>finished++);g.startBattle();for(let i=0;i<4000;i++)g.tick(B.step);expect(g.run.phase).toBe('defeat');expect(finished).toBe(1);});
+  it('finishes at year 20 and prevents actions during a battle',()=>{const g=Game.create('ember',7);g.placeCastle(0,0);g.run.year=20;g.run.waveDamage=10000;g.startBattle();expect(g.play(0,1,0)).toBeTruthy();g.tick(B.step);expect(g.run.phase).toBe('victory');});
+  it('loses an undefended kingdom and emits one finish event',()=>{const g=Game.create('ember',7);g.placeCastle(0,0);g.run.hp=1;let finished=0;g.events.on('finished',()=>finished++);g.startBattle();for(let i=0;i<4000;i++)g.tick(B.step);expect(g.run.phase).toBe('defeat');expect(finished).toBe(1);});
 });

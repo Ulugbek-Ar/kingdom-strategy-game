@@ -18,14 +18,16 @@ Vite prints the development address. Production output is in `dist/`; it can be 
 
 ## Play
 
-1. Begin a chronicle, choose an unlocked faction and enter a seed for a reproducible run.
-2. Click a card, then a grid tile, or drag the card onto the grid. On touch screens, tap card then tile. The castle occupies the center.
-3. Identical cards stack to level 3. Buildings spawn a fresh army each battle; towers fire from the castle. Enchantments affect orthogonal neighbors only. Hover for exact numbers and use the highlighted placement preview.
-4. Spell and expansion cards ask for confirmation and resolve immediately. Expand unlocks the 5×5 grid. Unplayed cards are discarded each year.
-5. End the year to defend. Use 1×/2×/4× and pause. Space pauses; 1–5 select cards; Escape cancels selection. Sound is optional and defaults off.
-6. Choose one enemy card, perk or gold reward. Every third completed year also grants a perk. Every fifth wave is a boss. Survive the final boss in Year 20 to win; zero castle HP ends the run.
+1. Start a kingdom, choose an unlocked faction and enter a seed. Place the castle on any of the nine starting plots.
+2. Each year draws five cards. Click a card then a plot, or drag it onto the battlefield. Touch input supports tap-card, tap-plot. Play at most three; the third starts combat automatically. **Defend now** starts earlier.
+3. Unit buildings spawn squads at their own plots: level 1 = **4**, level 2 = **8**, level 3 = **14**. Place identical cards on a building to upgrade. Support buildings buff four orthogonal neighbors; towers fire from their own tiles.
+4. Spells resolve after confirmation. Expand adds **one connected plot** within the 5x5 kingdom boundary. Unplayed cards are discarded next year.
+5. The approaching king's banner and arrow mark a seeded north/east/south/west entry. Enemies march toward the placed castle and allies move out to intercept. Use 1x/2x/4x, pause and the thin HP/gold HUD.
+6. Choose **one of three distinct cards from the defeated faction's deck**. Every third cleared year also grants a blessing. Every fifth year is a boss. Survive Year 20 to win; zero castle HP ends the run.
 
-After the first completed run Verdant Pact unlocks; after two runs or a victory Tideglass unlocks. Captured cards are permanently added to future starting decks. Progress and the current run autosave locally. Refreshing during combat restores its planning checkpoint, so no partial battle needs to be reconstructed. Corrupt/future-version saves fall back to a fresh profile; blocked browser storage shows a warning.
+Keys: **1-5** select cards, **Space** pauses combat, **Escape** cancels selection or opens settings. Focus the battlefield, use arrow keys to move the plot cursor, then Enter to place. Settings contain controls, sound and reduced motion. Sound defaults off. There are no runtime font/image/CDN downloads.
+
+After one completed run Verdant Pact unlocks; after two runs or a victory Tideglass unlocks. Captured cards enter future decks. Progress autosaves locally. Refresh during combat restores its last planning checkpoint. Version-1/2 saves migrate to v3: the old center castle, existing tiles (including fully expanded grids), decks, RNG and progression are retained. Old mixed rewards convert to three enemy cards. Invalid/future saves start a fresh profile; storage denial is reported.
 
 ## Factions
 
@@ -39,15 +41,17 @@ Each has ten original cards: two unit buildings, a tower, two adjacency enchantm
 
 ## Structure and design
 
-See [AGENTS.md](AGENTS.md) for the folder map and guides for adding cards, effects, factions, perks and migrations. `Game` coordinates the systems; an EventBus notifies observers. Battle state advances at a fixed 30 Hz regardless of rendering or speed. A seeded PRNG drives deck draws, enemies, rewards and combat critical hits. Tuning lives in balance/content files.
+See [AGENTS.md](AGENTS.md) for folder maps, extension guides and performance/save contracts. The architecture remains data-driven TypeScript + effects + headless simulation + seeded RNG + versioned local saves. No engine or backend is required.
 
-Native Canvas 2D was selected to match the requested stack and keep simulation independent of rendering; no game engine is required. The visual direction uses forest green, aged parchment, restrained gold and original geometric pixel-style buildings. Enemy silhouettes and health bars distinguish sides without relying solely on color. All art is drawn locally and tones are synthesized; there are no third-party art/music licenses or runtime asset downloads.
+`Game` coordinates systems and emits typed EventBus notifications. The headless battle advances at 30 fixed steps per simulated second; presentation draws at browser RAF frequency. `SpatialHash` replaces per-unit sorting; reusable unit objects and bounded projectile/feedback pools avoid per-frame effect allocation. Sprite variants, shadow paths and health bars are batched.
 
-The MVP uses shared effect archetypes with distinct faction troops/passives, not thirty separate bespoke mechanics. Enemy faction identity controls captured rewards; enemy waves currently share a scaling melee archetype. A battle time limit resolves surviving invaders as siege damage to avoid endless fights. Art and sound are placeholders; balance needs human playtesting.
+A single canvas uses a 480x270 logical viewport at 16:9 with responsive low-resolution extensions/cropping at other aspect ratios, disabled smoothing and crisp CSS scaling. Original procedural sprites are 16x16 for units and 24x24 for buildings, with faction palettes and banners. Ground and decorations are seeded. Small DOM cards/HUD and pause/reward overlays sit above the scene. Audio is locally synthesized with WebAudio.
+
+Faction troops, palettes, king wave modifiers and passives differ. Bosses currently increase army size/stats; bespoke boss abilities and human balance tuning remain future work. Combat has a deterministic siege timeout. Art/audio are original procedural assets, with no external asset licenses required.
 
 ## Verification
 
-`npm run build` performs strict type checking and a production build. `npm test` covers trigger dispatch, adjacency, upgrades, deterministic combat, wave scaling, year flow, defeat, the Year 20 victory transition, save migrations, persistence and unlocks. See [VALIDATION.md](VALIDATION.md) for executed checks and browser evidence.
+`npm run build` performs strict TypeScript checking and production compilation. `npm test` covers effect timing, adjacency, 4/8/14 squads, leveling, placement limits, card-only rewards, seeded battle/directions, scaling, pools, full-run transitions and v1/v2/v3 saves. A warmed **complete 300-unit battle** must finish under **100 ms**. See [VALIDATION.md](VALIDATION.md) for executed checks, browser scenarios and the 440-unit frame benchmark; benchmark results describe the measured environment.
 
 ## Next five updates
 

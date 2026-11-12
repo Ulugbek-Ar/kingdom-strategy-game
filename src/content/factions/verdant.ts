@@ -10,6 +10,6 @@ export const verdantCards = makeDeck('verdant', [
   ['heal','Renewal','spell','Restore castle health.',heal],
   ['blast','Bramble Storm','spell','Damage every enemy in the next battle.',blast],
   ['edict','Harvest Edict','spell','Gain gold immediately.',gold],
-  ['expand','Wildgrowth','expand','Expand to 5×5 and mend the castle.',expand],
+  ['expand','Wildgrowth','expand','Add one neighboring plot and mend the castle.',expand],
 ]);
-export const verdant: Faction = { id: 'verdant', name: 'Verdant Pact', subtitle: 'Life finds a way', icon: '❋', color: '#a0c98b', passive: 'All allied troops gain +25% health.', deck: verdantCards.map(c => c.id) };
+export const verdant: Faction = { id: 'verdant', name: 'Verdant Pact', subtitle: 'Life finds a way', icon: 'verdant', color: '#a0c98b', passive: 'All allied troops gain +25% health.', deck: verdantCards.map(c => c.id) };

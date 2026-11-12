@@ -1,8 +1,9 @@
 import type { Card, FactionId, Effect } from '../../core/types';
+import { units } from '../units';
 import { BALANCE as B } from '../../config/balance';
 export type CardSpec = [string, string, Card['type'], string, Effect[]];
 export function makeDeck(faction: FactionId, specs: CardSpec[]): Card[] {
-  return specs.map(([slug, name, type, description, effects]) => ({ id: `${faction}-${slug}`, name, type, faction, description, effects, cost: type === 'building' ? B.buildingCost : type === 'tower' ? B.towerCost : type === 'enchantment' ? B.enchantCost : type === 'expand' ? B.expandCost : B.spellCost, icon: { building: '⚑', tower: '♜', enchantment: '✧', spell: '✦', expand: '⊞' }[type] }));
+  return specs.map(([slug, name, type, description, effects]) => ({ id: `${faction}-${slug}`, name, type, faction, description, effects, cost: type === 'building' ? B.buildingCost : type === 'tower' ? B.towerCost : type === 'enchantment' ? B.enchantCost : type === 'expand' ? B.expandCost : B.spellCost, icon: type === 'building' ? (effects.some(e => e.kind === 'gainGold') ? 'market' : effects.some(e => e.unit && units[e.unit]?.range > B.meleeRange) ? 'archery' : 'barracks') : type === 'enchantment' ? (effects.some(e => e.stat === 'spawn') ? 'beacon' : 'shrine') : type }));
 }
 export const spawn = (unit: string): Effect[] => [{ kind: 'spawnUnits', trigger: 'onBattleStart', amount: B.baseSpawn, unit }];
 export const buff = (stat: 'damage' | 'hp' | 'spawn'): Effect[] => [{ kind: 'buffAdjacent', trigger: 'onBattleStart', amount: stat === 'spawn' ? 1 : B.adjacency, stat }];

@@ -10,6 +10,6 @@ export const tideCards = makeDeck('tide', [
   ['heal','Mending Rain','spell','Restore castle health.',heal],
   ['blast','Glassfall','spell','Damage every enemy in the next battle.',blast],
   ['edict','Trade Wind','spell','Gain gold immediately.',gold],
-  ['expand','Shoreline','expand','Expand to 5×5 and mend the castle.',expand],
+  ['expand','Shoreline','expand','Add one neighboring plot and mend the castle.',expand],
 ]);
-export const tide: Faction = { id: 'tide', name: 'Tideglass', subtitle: 'Fortune in the current', icon: '◈', color: '#8ac6d2', passive: 'Receive +2 gold at the start of every year.', deck: tideCards.map(c => c.id) };
+export const tide: Faction = { id: 'tide', name: 'Tideglass', subtitle: 'Fortune in the current', icon: 'tide', color: '#8ac6d2', passive: 'Receive +2 gold at the start of every year.', deck: tideCards.map(c => c.id) };
